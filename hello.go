@@ -1,6 +1,8 @@
 package main
 
 import (
+    "golang.org/x/crypto/acme/autocert"
+    "flag"
     "fmt"
     "net/http"
     "os"
@@ -45,11 +47,29 @@ func download_handle(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+    useHttps := flag.Bool("https", false, "Use HTTPS")
+    domain := flag.String("domain", "localhost", "Domain for HTTPS certificate")
+    port := flag.Int("port", 8080, "Port to listen for HTTP protocol")
+    flag.Parse()
+
     http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
         http.ServeFile(w, r, "index.html")
     })
     http.HandleFunc("/download", download_handle)
     http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("/tmp/ytdl/"))))
 
-    http.ListenAndServe("127.0.0.1:8080", nil)
+    if (*useHttps) {
+        fmt.Println("Using HTTPS")
+        if (*domain == "localhost") {
+            http.ListenAndServeTLS(":443", "localhost.crt", "localhost.key", nil)
+        } else {
+            http.Serve(autocert.NewListener(*domain), nil)
+        }
+    } else {
+        fmt.Println("Using HTTP with port", *port)
+        err := http.ListenAndServe("127.0.0.1:" + fmt.Sprint(*port), nil)
+        if (err != nil) {
+            fmt.Println("Error", err.Error())
+        }
+    }
 }
