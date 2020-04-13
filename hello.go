@@ -58,18 +58,21 @@ func main() {
     http.HandleFunc("/download", download_handle)
     http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("/tmp/ytdl/"))))
 
+    var err error
+
     if (*useHttps) {
         fmt.Println("Using HTTPS")
         if (*domain == "localhost") {
-            http.ListenAndServeTLS(":443", "localhost.crt", "localhost.key", nil)
+            err = http.ListenAndServeTLS(":443", "localhost.crt", "localhost.key", nil)
         } else {
-            http.Serve(autocert.NewListener(*domain), nil)
+            err = http.Serve(autocert.NewListener(*domain), nil)
         }
     } else {
         fmt.Println("Using HTTP with port", *port)
-        err := http.ListenAndServe("127.0.0.1:" + fmt.Sprint(*port), nil)
-        if (err != nil) {
-            fmt.Println("Error", err.Error())
-        }
+        err = http.ListenAndServe("127.0.0.1:" + fmt.Sprint(*port), nil)
+    }
+
+    if (err != nil) {
+        fmt.Println("Error", err.Error())
     }
 }
