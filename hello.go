@@ -3,6 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -51,7 +52,11 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 		commandParams := "-x --audio-format '" + audioFormat + "' -o " + filename + " -- " + id
 		command := commandName + " " + commandParams
 		cmd := exec.Command("bash", "-c", command)
-		err := cmd.Run()
+
+		log.Printf("Run %s\n", command)
+		out, err := cmd.Output()
+
+		log.Printf("The %s output is\n%s\n", command, out)
 
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -77,18 +82,18 @@ func main() {
 	var err error
 
 	if *useHTTPS {
-		fmt.Println("Using HTTPS")
+		log.Println("Using HTTPS")
 		if *domain == "localhost" {
 			err = http.ListenAndServeTLS(":443", "localhost.crt", "localhost.key", nil)
 		} else {
 			err = http.Serve(autocert.NewListener(*domain), nil)
 		}
 	} else {
-		fmt.Println("Using HTTP with port", *port)
+		log.Println("Using HTTP with port", *port)
 		err = http.ListenAndServe("127.0.0.1:"+fmt.Sprint(*port), nil)
 	}
 
 	if err != nil {
-		fmt.Println("Error", err.Error())
+		log.Println("Error", err.Error())
 	}
 }
