@@ -15,14 +15,14 @@ const baseDir = "/tmp/ytdl/"
 const commandName = "youtube-dl"
 
 func download_handle(w http.ResponseWriter, r *http.Request) {
-    if (r.Method != "GET") {
+    if r.Method != "GET" {
         w.WriteHeader(http.StatusMethodNotAllowed)
         fmt.Fprintf(w, "Make a GET request")
         return
     }
 
     id := r.URL.Query().Get("v")
-    if (len(id) == 0) {
+    if len(id) == 0 {
         w.WriteHeader(http.StatusBadRequest)
         fmt.Fprintf(w, "Must specify 'v' parameter")
         return
@@ -37,7 +37,7 @@ func download_handle(w http.ResponseWriter, r *http.Request) {
         cmd := exec.Command("bash", "-c", command)
         err := cmd.Run()
 
-        if (err != nil) {
+        if err != nil {
             w.WriteHeader(http.StatusInternalServerError)
             fmt.Fprintf(w, "Command " + command + " error: " + err.Error())
         }
@@ -60,9 +60,9 @@ func main() {
 
     var err error
 
-    if (*useHttps) {
+    if *useHttps {
         fmt.Println("Using HTTPS")
-        if (*domain == "localhost") {
+        if *domain == "localhost" {
             err = http.ListenAndServeTLS(":443", "localhost.crt", "localhost.key", nil)
         } else {
             err = http.Serve(autocert.NewListener(*domain), nil)
@@ -72,7 +72,7 @@ func main() {
         err = http.ListenAndServe("127.0.0.1:" + fmt.Sprint(*port), nil)
     }
 
-    if (err != nil) {
+    if err != nil {
         fmt.Println("Error", err.Error())
     }
 }
