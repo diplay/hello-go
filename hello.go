@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"golang.org/x/crypto/acme/autocert"
 )
@@ -16,6 +17,8 @@ const audioFormat = "mp3"
 const extension = "." + audioFormat
 const baseDir = "/tmp/ytdl/"
 const commandName = "youtube-dl"
+
+var idsInProgress sync.Map
 
 func extractVideoID(v string) string {
 	if strings.Contains(v, "v=") {
@@ -45,6 +48,14 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 	}
 	id = extractVideoID(id)
 
+	log.Printf("Received request %s, video id %s", r.URL.String(), id)
+	if _, loaded := idsInProgress.LoadOrStore(id, 1); loaded {
+		log.Printf("Cannot set id %s to active state", id)
+		w.WriteHeader(http.StatusTooManyRequests)
+		fmt.Fprintf(w, "Other request is downloading video %s now, please try later", id)
+		return
+	}
+
 	resultFilename := baseDir + id + extension
 
 	if _, err := os.Stat(resultFilename); os.IsNotExist(err) {
@@ -59,11 +70,15 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 		log.Printf("The %s output is\n%s\n", command, out)
 
 		if err != nil {
+			idsInProgress.Delete(id)
 			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprintf(w, "Command "+command+" error: "+err.Error())
+			fmt.Fprintf(w, "Command %s error: %s", command, err.Error())
+			log.Printf("Command %s error: %s", command, err.Error())
+			return
 		}
 	}
 
+	idsInProgress.Delete(id)
 	http.Redirect(w, r, "/static/"+id+extension, http.StatusFound)
 }
 
