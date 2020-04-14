@@ -2,3 +2,4 @@ hello-go
 *.swp
 localhost.key
 localhost.crt
+.vscode
