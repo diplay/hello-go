@@ -20,10 +20,11 @@ RUN go build -o /bin/project
 # This results in a single layer image
 FROM frolvlad/alpine-python3:latest
 COPY --from=build /bin/project /bin/project
+COPY index.html .
 
 RUN pip3 install --no-cache-dir --upgrade youtube-dl
 
 EXPOSE 8080/tcp
 
 ENTRYPOINT ["/bin/project"]
-CMD ["-port", "8080"]
+CMD ["-addr", "0.0.0.0:8080"]

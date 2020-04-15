@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"strings"
@@ -21,6 +22,17 @@ const commandName = "youtube-dl"
 var idsInProgress sync.Map
 
 func extractVideoID(v string) string {
+	if youtubeURL, err := url.ParseRequestURI(v); err == nil {
+		if id := youtubeURL.Query().Get("v"); len(id) > 0 {
+			return id
+		}
+
+		splitted := strings.Split(youtubeURL.Path, "/")
+		id := splitted[len(splitted)-1]
+		return id
+	}
+
+	// if v is not a valid URL try some heuristics
 	if strings.Contains(v, "v=") {
 		splitted := strings.Split(v, "v=")
 		v = splitted[len(splitted)-1]
@@ -47,6 +59,15 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id = extractVideoID(id)
+
+	if len(id) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(
+			w,
+			"Parameter 'v' is invalid. Must be an url like 'https://youtu.be/b8g1o8Ph7LQ' or 'https://www.youtube.com/watch?v=b8g1o8Ph7LQ' or just 'b8g1o8Ph7LQ'.",
+		)
+		return
+	}
 
 	log.Printf("Received request %s, video id %s", r.URL.String(), id)
 	if _, loaded := idsInProgress.LoadOrStore(id, 1); loaded {
@@ -85,7 +106,7 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 func main() {
 	useHTTPS := flag.Bool("https", false, "Use HTTPS")
 	domain := flag.String("domain", "localhost", "Domain for HTTPS certificate")
-	port := flag.Int("port", 8080, "Port to listen for HTTP protocol")
+	addr := flag.String("addr", "127.0.0.1:8080", "Address to listen for HTTP protocol")
 	flag.Parse()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -104,8 +125,8 @@ func main() {
 			err = http.Serve(autocert.NewListener(*domain), nil)
 		}
 	} else {
-		log.Println("Using HTTP with port", *port)
-		err = http.ListenAndServe("127.0.0.1:"+fmt.Sprint(*port), nil)
+		log.Println("Using HTTP with address", *addr)
+		err = http.ListenAndServe(*addr, nil)
 	}
 
 	if err != nil {
