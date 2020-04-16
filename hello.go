@@ -45,6 +45,24 @@ func extractVideoID(v string) string {
 	return v
 }
 
+func doDownload(id string) (string, error) {
+	resultFilename := baseDir + id + extension
+	if _, err := os.Stat(resultFilename); os.IsNotExist(err) {
+		filename := "'" + baseDir + id + ".webm'"
+		commandParams := "-x --audio-format '" + audioFormat + "' -o " + filename + " -- " + id
+		command := commandName + " " + commandParams
+		cmd := exec.Command("bash", "-c", command)
+
+		log.Printf("Run %s\n", command)
+		out, err := cmd.Output()
+
+		log.Printf("The %s output is\n%s\n", command, out)
+
+		return command, err
+	}
+	return "", nil
+}
+
 func downloadHandle(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "GET" {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -77,29 +95,16 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resultFilename := baseDir + id + extension
+	command, err := doDownload(id)
+	idsInProgress.Delete(id)
 
-	if _, err := os.Stat(resultFilename); os.IsNotExist(err) {
-		filename := "'" + baseDir + id + ".webm'"
-		commandParams := "-x --audio-format '" + audioFormat + "' -o " + filename + " -- " + id
-		command := commandName + " " + commandParams
-		cmd := exec.Command("bash", "-c", command)
-
-		log.Printf("Run %s\n", command)
-		out, err := cmd.Output()
-
-		log.Printf("The %s output is\n%s\n", command, out)
-
-		if err != nil {
-			idsInProgress.Delete(id)
-			w.WriteHeader(http.StatusInternalServerError)
-			fmt.Fprintf(w, "Command %s error: %s", command, err.Error())
-			log.Printf("Command %s error: %s", command, err.Error())
-			return
-		}
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "Command %s error: %s", command, err.Error())
+		log.Printf("Command %s error: %s", command, err.Error())
+		return
 	}
 
-	idsInProgress.Delete(id)
 	http.Redirect(w, r, "/static/"+id+extension, http.StatusFound)
 }
 
