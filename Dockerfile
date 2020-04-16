@@ -20,9 +20,10 @@ RUN go build -o /bin/project
 # This results in a single layer image
 FROM frolvlad/alpine-python3:latest
 COPY --from=build /bin/project /bin/project
-COPY index.html .
+COPY *.html ./
 
 RUN pip3 install --no-cache-dir --upgrade youtube-dl
+RUN apk add --no-cache ffmpeg
 
 EXPOSE 8080/tcp
 
