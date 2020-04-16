@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Listen {{.ID }}</title>
+
+    <script>
+        var previousTime;
+
+        function saveTime() {
+            var player = document.getElementById("player");
+            var currentTime = player.currentTime.toFixed(0);
+            if (currentTime != previousTime) {
+                var newUrl = "/listen?v={{.ID }}&t=" + player.currentTime.toFixed(0);
+                window.history.replaceState(null, "", newUrl);
+                previousTime = currentTime;
+            }
+        }
+
+        var interval = setInterval(saveTime, 60000);
+    </script>
+  </head>
+
+  <body>
+      <audio src="{{.AudioFile }}" controls id="player" onseeked="saveTime()"></audio>
+  </body>
+</html>

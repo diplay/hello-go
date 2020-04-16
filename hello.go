@@ -3,11 +3,13 @@ package main
 import (
 	"flag"
 	"fmt"
+	"html/template"
 	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -18,8 +20,16 @@ const audioFormat = "mp3"
 const extension = "." + audioFormat
 const baseDir = "/tmp/ytdl/"
 const commandName = "youtube-dl"
+const staticPrefix = "/static/"
 
 var idsInProgress sync.Map
+var listenTemplate = template.Must(template.ParseFiles("listen.html"))
+
+type listenTemplateData struct {
+	ID        string
+	AudioFile string
+	Time      int64
+}
 
 func extractVideoID(v string) string {
 	if youtubeURL, err := url.ParseRequestURI(v); err == nil {
@@ -51,7 +61,7 @@ func doDownload(id string) (string, error) {
 		filename := "'" + baseDir + id + ".webm'"
 		commandParams := "-x --audio-format '" + audioFormat + "' -o " + filename + " -- " + id
 		command := commandName + " " + commandParams
-		cmd := exec.Command("bash", "-c", command)
+		cmd := exec.Command("sh", "-c", command)
 
 		log.Printf("Run %s\n", command)
 		out, err := cmd.Output()
@@ -105,7 +115,47 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/static/"+id+extension, http.StatusFound)
+	http.Redirect(w, r, "/listen?v="+id+"&t=0", http.StatusFound)
+}
+
+func listenHandle(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		fmt.Fprintf(w, "Make a GET request")
+		return
+	}
+
+	id := r.URL.Query().Get("v")
+	if len(id) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "Must specify 'v' parameter")
+		return
+	}
+
+	t := r.URL.Query().Get("t")
+	if len(t) == 0 {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "Must specify 't' parameter")
+		return
+	}
+
+	time, err := strconv.ParseInt(t, 10, 64)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "Parameter 't' must be integer")
+		return
+	}
+
+	audioFilename := staticPrefix + id + extension + "#t=" + t
+	data := listenTemplateData{ID: id, AudioFile: audioFilename, Time: time}
+
+	w.Header().Add("Feature-Policy", "autoplay 'self'")
+
+	err = listenTemplate.Execute(w, data)
+	if err != nil {
+		fmt.Fprintf(w, "Error: %s", err.Error())
+		log.Printf("Error: %s", err.Error())
+	}
 }
 
 func main() {
@@ -118,7 +168,8 @@ func main() {
 		http.ServeFile(w, r, "index.html")
 	})
 	http.HandleFunc("/download", downloadHandle)
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("/tmp/ytdl/"))))
+	http.HandleFunc("/listen", listenHandle)
+	http.Handle(staticPrefix, http.StripPrefix(staticPrefix, http.FileServer(http.Dir("/tmp/ytdl/"))))
 
 	var err error
 
