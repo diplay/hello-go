@@ -9,6 +9,11 @@
         var previousTime;
 
         function saveTime() {
+            var needSaveTime = document.getElementById("need-save-time")
+            if (!needSaveTime.checked) {
+                return;
+            }
+
             var player = document.getElementById("player");
             var currentTime = player.currentTime.toFixed(0);
             if (currentTime != previousTime) {
@@ -23,6 +28,9 @@
   </head>
 
   <body>
-      <audio src="{{.AudioFile }}" controls id="player" onseeked="saveTime()"></audio>
+      <audio src="{{.AudioFile }}" controls id="player" onseeked="saveTime()" onpause="saveTime()"></audio>
+      <div>
+          <label><input type="checkbox" id="need-save-time" checked />Refresh time in URL</label>
+      </div>
   </body>
 </html>
