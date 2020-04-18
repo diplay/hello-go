@@ -24,7 +24,7 @@ COPY --from=build /bin/project /bin/project
 COPY *.html ./
 
 RUN pip3 install --no-cache-dir --upgrade youtube-dl
-RUN apk add --no-cache ffmpeg
+RUN apk add --no-cache ffmpeg ca-certificates && update-ca-certificates 2>/dev/null
 
 EXPOSE 8080/tcp
 
