@@ -3,7 +3,6 @@ FROM golang:1.11-alpine AS build
 # Install tools required for project
 # Run `docker build --no-cache .` to update dependencies
 RUN apk add --no-cache git
-RUN go get -u golang.org/x/crypto/acme/autocert
 RUN go get -u github.com/go-telegram-bot-api/telegram-bot-api
 
 # List project dependencies with Gopkg.toml and Gopkg.lock

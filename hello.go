@@ -14,7 +14,6 @@ import (
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
-	"golang.org/x/crypto/acme/autocert"
 )
 
 const audioFormat = "mp3"
@@ -246,8 +245,10 @@ func initBotAPI(domain, token string) {
 
 func main() {
 	useHTTPS := flag.Bool("https", false, "Use HTTPS")
-	domain := flag.String("domain", "localhost", "Domain for HTTPS certificate and telegram webhook")
+	domain := flag.String("domain", "localhost", "Domain for telegram webhook")
 	addr := flag.String("addr", "127.0.0.1:8080", "Address to listen for HTTP protocol")
+	cert := flag.String("cert", "localhost.crt", "Certificate file for HTTPS")
+	key := flag.String("key", "localhost.key", "Key file for HTTPS")
 	telegramBotToken := flag.String("telegram-bot-token", "", "Token for telegram bot")
 	flag.Parse()
 
@@ -268,11 +269,7 @@ func main() {
 
 	if *useHTTPS {
 		log.Println("Using HTTPS")
-		if *domain == "localhost" {
-			err = http.ListenAndServeTLS(":443", "localhost.crt", "localhost.key", nil)
-		} else {
-			err = http.Serve(autocert.NewListener(*domain), nil)
-		}
+		err = http.ListenAndServeTLS(":443", *cert, *key, nil)
 	} else {
 		log.Println("Using HTTP with address", *addr)
 		err = http.ListenAndServe(*addr, nil)

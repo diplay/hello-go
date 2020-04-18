@@ -30,7 +30,7 @@
   <body>
       <audio src="{{.AudioFile }}" controls id="player" onseeked="saveTime()" onpause="saveTime()"></audio>
       <div>
-          <label><input type="checkbox" id="need-save-time" checked onchange="saveTime()" />Refresh time in URL</label>
+          <label><input type="checkbox" id="need-save-time" onchange="saveTime()" />Refresh time in URL</label>
       </div>
   </body>
 </html>
