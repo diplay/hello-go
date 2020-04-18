@@ -13,6 +13,7 @@ import (
 	"strings"
 	"sync"
 
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	"golang.org/x/crypto/acme/autocert"
 )
 
@@ -158,10 +159,96 @@ func listenHandle(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func sendTextMessage(bot *tgbotapi.BotAPI, answerTo *tgbotapi.Message, text string) {
+	msg := tgbotapi.NewMessage(answerTo.Chat.ID, text)
+	msg.ReplyToMessageID = answerTo.MessageID
+	msg.DisableWebPagePreview = true
+	_, err := bot.Send(msg)
+	if err != nil {
+		log.Printf("Cannot send a message to telegram: %s", err.Error())
+	}
+}
+
+func processTelegramUpdates(bot *tgbotapi.BotAPI, listenBaseURL string, updates tgbotapi.UpdatesChannel) {
+	for update := range updates {
+		// log.Printf("Update from telegram %+v\nMessage: %+v\n", update, update.Message)
+		if update.Message == nil {
+			continue
+		}
+
+		switch update.Message.Command() {
+		case "start":
+			log.Printf("Received /start command from %s\n", update.Message.From.UserName)
+			sendTextMessage(bot, update.Message, "Use this bot to get an audio from youtube videos")
+		case "info":
+			log.Printf("Received /info command from %s\n", update.Message.From.UserName)
+			sendTextMessage(bot, update.Message, "Use this bot to get an audio from youtube videos")
+		case "listen":
+			args := update.Message.CommandArguments()
+			log.Printf("Received /listen command with video %s from %s\n", args, update.Message.From.UserName)
+
+			id := extractVideoID(args)
+
+			if len(id) == 0 {
+				sendTextMessage(bot, update.Message, "Parameter 'v' is invalid. Must be an url like 'https://youtu.be/b8g1o8Ph7LQ' or 'https://www.youtube.com/watch?v=b8g1o8Ph7LQ' or just 'b8g1o8Ph7LQ'.")
+				continue
+			}
+
+			log.Printf("Received listen command, video id %s", id)
+			if _, loaded := idsInProgress.LoadOrStore(id, 1); loaded {
+				log.Printf("Cannot set id %s to active state", id)
+				sendTextMessage(bot, update.Message, "Other request is downloading video "+id+" now, please try later")
+				continue
+			}
+
+			sendTextMessage(bot, update.Message, "Wait a moment, downloading the content for you")
+			bot.Send(tgbotapi.NewChatAction(update.Message.Chat.ID, "typing"))
+			command, err := doDownload(id)
+			idsInProgress.Delete(id)
+
+			if err != nil {
+				sendTextMessage(bot, update.Message, "Command "+command+" error: "+err.Error())
+				log.Printf("Command %s error: %s", command, err.Error())
+				return
+			}
+
+			sendTextMessage(bot, update.Message, listenBaseURL+"?v="+id+"&t=0")
+		default:
+			log.Printf("Cannot parse message %+v", update.Message)
+		}
+	}
+}
+
+func initBotAPI(domain, token string) {
+	bot, err := tgbotapi.NewBotAPI(token)
+	if err != nil {
+		log.Fatal(err)
+	}
+	bot.Debug = true
+
+	log.Printf("Authorized on account %s", bot.Self.UserName)
+
+	_, err = bot.SetWebhook(tgbotapi.NewWebhook("https://" + domain + "/" + bot.Token))
+	if err != nil {
+		log.Fatal(err)
+	}
+	info, err := bot.GetWebhookInfo()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if info.LastErrorDate != 0 {
+		log.Printf("Telegram callback failed: %s", info.LastErrorMessage)
+	}
+
+	updates := bot.ListenForWebhook("/" + bot.Token)
+	go processTelegramUpdates(bot, "https://"+domain+"/listen", updates)
+}
+
 func main() {
 	useHTTPS := flag.Bool("https", false, "Use HTTPS")
-	domain := flag.String("domain", "localhost", "Domain for HTTPS certificate")
+	domain := flag.String("domain", "localhost", "Domain for HTTPS certificate and telegram webhook")
 	addr := flag.String("addr", "127.0.0.1:8080", "Address to listen for HTTP protocol")
+	telegramBotToken := flag.String("telegram-bot-token", "", "Token for telegram bot")
 	flag.Parse()
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -170,6 +257,12 @@ func main() {
 	http.HandleFunc("/download", downloadHandle)
 	http.HandleFunc("/listen", listenHandle)
 	http.Handle(staticPrefix, http.StripPrefix(staticPrefix, http.FileServer(http.Dir("/tmp/ytdl/"))))
+
+	if len(*telegramBotToken) > 0 {
+		initBotAPI(*domain, *telegramBotToken)
+	} else {
+		log.Println("Don't create a webhook for telegram bot")
+	}
 
 	var err error
 
