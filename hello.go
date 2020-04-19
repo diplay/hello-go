@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -20,8 +19,6 @@ import (
 const baseDir = "/tmp/ytdl/"
 const commandName = "youtube-dl"
 const staticPrefix = "/static/"
-
-var destinationRegex = regexp.MustCompile("\\[ffmpeg\\] Destination: (?:.*\\/(.+)|(.+))")
 
 var idsInProgress sync.Map
 var listenTemplate = template.Must(template.ParseFiles("listen.html"))
@@ -57,11 +54,24 @@ func extractVideoID(v string) string {
 	return v
 }
 
+func findOutputFile(id string) string {
+	if dir, err := os.Open(baseDir); err == nil {
+		if files, err := dir.Readdirnames(-1); err == nil {
+			for _, filename := range files {
+				if strings.HasPrefix(filename, id) && !strings.HasSuffix(filename, ".info.json") {
+					return filename
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func doDownload(id string) (string, string, error) {
 	infoFilename := baseDir + id + ".info.json"
 	if _, err := os.Stat(infoFilename); os.IsNotExist(err) {
 		filename := "'" + baseDir + "%(id)s.%(ext)s'"
-		commandParams := "-x --write-info-json --no-progress -f 'worstaudio/worst' -o " + filename + " -- " + id
+		commandParams := "-x --write-info-json --no-progress -f 'bestaudio[filesize<20M]/best[filesize<20M]/worstaudio/worst' -o " + filename + " -- " + id
 		command := commandName + " " + commandParams
 		cmd := exec.Command("sh", "-c", command)
 
@@ -70,24 +80,11 @@ func doDownload(id string) (string, string, error) {
 
 		log.Printf("The %s output is\n%s\n", command, out)
 
-		var resultFilename string
-		for _, match := range destinationRegex.FindSubmatch(out) {
-			if len(match) > 0 {
-				resultFilename = string(match)
-			}
-		}
-
-		return resultFilename, command, err
+		return findOutputFile(id), command, err
 	}
 
-	if dir, err := os.Open(baseDir); err == nil {
-		if files, err := dir.Readdirnames(-1); err == nil {
-			for _, filename := range files {
-				if strings.HasPrefix(filename, id) && !strings.HasSuffix(filename, ".info.json") {
-					return filename, "", nil
-				}
-			}
-		}
+	if resultFilename := findOutputFile(id); len(resultFilename) > 0 {
+		return resultFilename, "", nil
 	}
 
 	log.Printf("Cannot find output file for video %s", id)
@@ -169,7 +166,7 @@ func listenHandle(w http.ResponseWriter, r *http.Request) {
 
 	audioFilename := staticPrefix + filename
 	audioURL := audioFilename + "#t=" + t
-	data := listenTemplateData{Title: filename, AudioURL: audioURL, AudioFile: audioFilename, Time: time}
+	data := listenTemplateData{Title: filename, AudioURL: audioURL, AudioFile: filename, Time: time}
 
 	w.Header().Add("Feature-Policy", "autoplay 'self'")
 
@@ -190,6 +187,34 @@ func sendTextMessage(bot *tgbotapi.BotAPI, answerTo *tgbotapi.Message, text stri
 	}
 }
 
+func telegramListenHandle(bot *tgbotapi.BotAPI, commandMessage *tgbotapi.Message, listenBaseURL string, id string) {
+	id = extractVideoID(id)
+	if len(id) == 0 {
+		sendTextMessage(bot, commandMessage, "Parameter 'v' is invalid. Must be an url like 'https://youtu.be/b8g1o8Ph7LQ' or 'https://www.youtube.com/watch?v=b8g1o8Ph7LQ' or just 'b8g1o8Ph7LQ'.")
+		return
+	}
+
+	log.Printf("Received listen command, video id %s", id)
+	if _, loaded := idsInProgress.LoadOrStore(id, 1); loaded {
+		log.Printf("Cannot set id %s to active state", id)
+		sendTextMessage(bot, commandMessage, "Other request is downloading video "+id+" now, please try later")
+		return
+	}
+
+	sendTextMessage(bot, commandMessage, "Wait a moment, downloading the content for you")
+	bot.Send(tgbotapi.NewChatAction(commandMessage.Chat.ID, "typing"))
+	filename, command, err := doDownload(id)
+	idsInProgress.Delete(id)
+
+	if err != nil {
+		sendTextMessage(bot, commandMessage, "Cannot load a video with id "+id)
+		log.Printf("Command %s error: %s", command, err.Error())
+		return
+	}
+
+	sendTextMessage(bot, commandMessage, listenBaseURL+"?v="+filename+"&t=0")
+}
+
 func processTelegramUpdates(bot *tgbotapi.BotAPI, listenBaseURL string, updates tgbotapi.UpdatesChannel) {
 	for update := range updates {
 		// log.Printf("Update from telegram %+v\nMessage: %+v\n", update, update.Message)
@@ -207,35 +232,9 @@ func processTelegramUpdates(bot *tgbotapi.BotAPI, listenBaseURL string, updates 
 		case "listen":
 			args := update.Message.CommandArguments()
 			log.Printf("Received /listen command with video %s from %s\n", args, update.Message.From.UserName)
-
-			id := extractVideoID(args)
-
-			if len(id) == 0 {
-				sendTextMessage(bot, update.Message, "Parameter 'v' is invalid. Must be an url like 'https://youtu.be/b8g1o8Ph7LQ' or 'https://www.youtube.com/watch?v=b8g1o8Ph7LQ' or just 'b8g1o8Ph7LQ'.")
-				continue
-			}
-
-			log.Printf("Received listen command, video id %s", id)
-			if _, loaded := idsInProgress.LoadOrStore(id, 1); loaded {
-				log.Printf("Cannot set id %s to active state", id)
-				sendTextMessage(bot, update.Message, "Other request is downloading video "+id+" now, please try later")
-				continue
-			}
-
-			sendTextMessage(bot, update.Message, "Wait a moment, downloading the content for you")
-			bot.Send(tgbotapi.NewChatAction(update.Message.Chat.ID, "typing"))
-			filename, command, err := doDownload(id)
-			idsInProgress.Delete(id)
-
-			if err != nil {
-				sendTextMessage(bot, update.Message, "Command "+command+" error: "+err.Error())
-				log.Printf("Command %s error: %s", command, err.Error())
-				return
-			}
-
-			sendTextMessage(bot, update.Message, listenBaseURL+"?v="+filename+"&t=0")
+			telegramListenHandle(bot, update.Message, listenBaseURL, args)
 		default:
-			log.Printf("Cannot parse message %+v", update.Message)
+			telegramListenHandle(bot, update.Message, listenBaseURL, update.Message.Text)
 		}
 	}
 }
