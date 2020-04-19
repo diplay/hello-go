@@ -79,6 +79,18 @@ func doDownload(id string) (string, string, error) {
 
 		return resultFilename, command, err
 	}
+
+	if dir, err := os.Open(baseDir); err == nil {
+		if files, err := dir.Readdirnames(-1); err == nil {
+			for _, filename := range files {
+				if strings.HasPrefix(filename, id) && !strings.HasSuffix(filename, ".info.json") {
+					return filename, "", nil
+				}
+			}
+		}
+	}
+
+	log.Printf("Cannot find output file for video %s", id)
 	return "", "", nil
 }
 
