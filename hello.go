@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,18 +17,19 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 )
 
-const audioFormat = "mp3"
-const extension = "." + audioFormat
 const baseDir = "/tmp/ytdl/"
 const commandName = "youtube-dl"
 const staticPrefix = "/static/"
+
+var destinationRegex = regexp.MustCompile("\\[ffmpeg\\] Destination: (?:.*\\/(.+)|(.+))")
 
 var idsInProgress sync.Map
 var listenTemplate = template.Must(template.ParseFiles("listen.html"))
 
 type listenTemplateData struct {
-	ID        string
+	Title     string
 	AudioFile string
+	AudioURL  string
 	Time      int64
 }
 
@@ -55,11 +57,11 @@ func extractVideoID(v string) string {
 	return v
 }
 
-func doDownload(id string) (string, error) {
-	resultFilename := baseDir + id + extension
-	if _, err := os.Stat(resultFilename); os.IsNotExist(err) {
-		filename := "'" + baseDir + id + ".webm'"
-		commandParams := "-x --audio-format '" + audioFormat + "' -o " + filename + " -- " + id
+func doDownload(id string) (string, string, error) {
+	infoFilename := baseDir + id + ".info.json"
+	if _, err := os.Stat(infoFilename); os.IsNotExist(err) {
+		filename := "'" + baseDir + "%(id)s.%(ext)s'"
+		commandParams := "-x --write-info-json --no-progress -f 'worstaudio/worst' -o " + filename + " -- " + id
 		command := commandName + " " + commandParams
 		cmd := exec.Command("sh", "-c", command)
 
@@ -68,9 +70,16 @@ func doDownload(id string) (string, error) {
 
 		log.Printf("The %s output is\n%s\n", command, out)
 
-		return command, err
+		var resultFilename string
+		for _, match := range destinationRegex.FindSubmatch(out) {
+			if len(match) > 0 {
+				resultFilename = string(match)
+			}
+		}
+
+		return resultFilename, command, err
 	}
-	return "", nil
+	return "", "", nil
 }
 
 func downloadHandle(w http.ResponseWriter, r *http.Request) {
@@ -105,7 +114,7 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	command, err := doDownload(id)
+	filename, command, err := doDownload(id)
 	idsInProgress.Delete(id)
 
 	if err != nil {
@@ -115,7 +124,7 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/listen?v="+id+"&t=0", http.StatusFound)
+	http.Redirect(w, r, "/listen?v="+filename+"&t=0", http.StatusFound)
 }
 
 func listenHandle(w http.ResponseWriter, r *http.Request) {
@@ -125,8 +134,8 @@ func listenHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	id := r.URL.Query().Get("v")
-	if len(id) == 0 {
+	filename := r.URL.Query().Get("v")
+	if len(filename) == 0 {
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "Must specify 'v' parameter")
 		return
@@ -146,8 +155,9 @@ func listenHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	audioFilename := staticPrefix + id + extension + "#t=" + t
-	data := listenTemplateData{ID: id, AudioFile: audioFilename, Time: time}
+	audioFilename := staticPrefix + filename
+	audioURL := audioFilename + "#t=" + t
+	data := listenTemplateData{Title: filename, AudioURL: audioURL, AudioFile: audioFilename, Time: time}
 
 	w.Header().Add("Feature-Policy", "autoplay 'self'")
 
@@ -202,7 +212,7 @@ func processTelegramUpdates(bot *tgbotapi.BotAPI, listenBaseURL string, updates 
 
 			sendTextMessage(bot, update.Message, "Wait a moment, downloading the content for you")
 			bot.Send(tgbotapi.NewChatAction(update.Message.Chat.ID, "typing"))
-			command, err := doDownload(id)
+			filename, command, err := doDownload(id)
 			idsInProgress.Delete(id)
 
 			if err != nil {
@@ -211,7 +221,7 @@ func processTelegramUpdates(bot *tgbotapi.BotAPI, listenBaseURL string, updates 
 				return
 			}
 
-			sendTextMessage(bot, update.Message, listenBaseURL+"?v="+id+"&t=0")
+			sendTextMessage(bot, update.Message, listenBaseURL+"?v="+filename+"&t=0")
 		default:
 			log.Printf("Cannot parse message %+v", update.Message)
 		}
