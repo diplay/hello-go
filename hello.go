@@ -20,6 +20,17 @@ const baseDir = "/tmp/ytdl/"
 const commandName = "youtube-dl"
 const staticPrefix = "/static/"
 
+const parameterVInvalidMessage = "Parameter 'v' is invalid. Must be an url like 'https://youtu.be/b8g1o8Ph7LQ' or 'https://www.youtube.com/watch?v=b8g1o8Ph7LQ' or just 'b8g1o8Ph7LQ'."
+const info = `Use this bot to get an audio from youtube videos.
+Examples:
+- /listen https://youtu.be/b8g1o8Ph7LQ
+- /listen b8g1o8Ph7LQ
+- /listen b8g1o8Ph7LQ mp3
+- https://youtu.be/b8g1o8Ph7LQ
+- https://www.youtube.com/watch?v=b8g1o8Ph7LQ
+etc...
+`
+
 var idsInProgress sync.Map
 var listenTemplate = template.Must(template.ParseFiles("listen.html"))
 
@@ -67,12 +78,15 @@ func findOutputFile(id string) string {
 	return ""
 }
 
-func doDownload(id string) (string, string, error) {
+func doDownload(id, audioFormat string) (string, string, error) {
 	infoFilename := baseDir + id + ".info.json"
 	if _, err := os.Stat(infoFilename); os.IsNotExist(err) {
 		filename := "'" + baseDir + "%(id)s.%(ext)s'"
-		commandParams := "-x --write-info-json --no-progress -f 'bestaudio[filesize<20M]/best[filesize<20M]/worstaudio/worst' -o " + filename + " -- " + id
-		command := commandName + " " + commandParams
+		commandParams := "-x --write-info-json --no-progress -f 'bestaudio[filesize<20M]/best[filesize<20M]/worstaudio/worst' -o " + filename
+		if len(audioFormat) > 0 {
+			commandParams += " --audio-format '" + audioFormat + "'"
+		}
+		command := commandName + " " + commandParams + " -- " + id
 		cmd := exec.Command("sh", "-c", command)
 
 		log.Printf("Run %s\n", command)
@@ -108,10 +122,7 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 
 	if len(id) == 0 {
 		w.WriteHeader(http.StatusBadRequest)
-		fmt.Fprintf(
-			w,
-			"Parameter 'v' is invalid. Must be an url like 'https://youtu.be/b8g1o8Ph7LQ' or 'https://www.youtube.com/watch?v=b8g1o8Ph7LQ' or just 'b8g1o8Ph7LQ'.",
-		)
+		fmt.Fprintf(w, parameterVInvalidMessage)
 		return
 	}
 
@@ -123,7 +134,7 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filename, command, err := doDownload(id)
+	filename, command, err := doDownload(id, "")
 	idsInProgress.Delete(id)
 
 	if err != nil {
@@ -164,8 +175,7 @@ func listenHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	audioFilename := staticPrefix + filename
-	audioURL := audioFilename + "#t=" + t
+	audioURL := staticPrefix + filename + "#t=" + t
 	data := listenTemplateData{Title: filename, AudioURL: audioURL, AudioFile: filename, Time: time}
 
 	w.Header().Add("Feature-Policy", "autoplay 'self'")
@@ -187,10 +197,10 @@ func sendTextMessage(bot *tgbotapi.BotAPI, answerTo *tgbotapi.Message, text stri
 	}
 }
 
-func telegramListenHandle(bot *tgbotapi.BotAPI, commandMessage *tgbotapi.Message, listenBaseURL string, id string) {
+func telegramListenHandle(bot *tgbotapi.BotAPI, commandMessage *tgbotapi.Message, listenBaseURL, id, audioFormat string) {
 	id = extractVideoID(id)
 	if len(id) == 0 {
-		sendTextMessage(bot, commandMessage, "Parameter 'v' is invalid. Must be an url like 'https://youtu.be/b8g1o8Ph7LQ' or 'https://www.youtube.com/watch?v=b8g1o8Ph7LQ' or just 'b8g1o8Ph7LQ'.")
+		sendTextMessage(bot, commandMessage, parameterVInvalidMessage)
 		return
 	}
 
@@ -203,7 +213,7 @@ func telegramListenHandle(bot *tgbotapi.BotAPI, commandMessage *tgbotapi.Message
 
 	sendTextMessage(bot, commandMessage, "Wait a moment, downloading the content for you")
 	bot.Send(tgbotapi.NewChatAction(commandMessage.Chat.ID, "typing"))
-	filename, command, err := doDownload(id)
+	filename, command, err := doDownload(id, audioFormat)
 	idsInProgress.Delete(id)
 
 	if err != nil {
@@ -213,6 +223,17 @@ func telegramListenHandle(bot *tgbotapi.BotAPI, commandMessage *tgbotapi.Message
 	}
 
 	sendTextMessage(bot, commandMessage, listenBaseURL+"?v="+filename+"&t=0")
+}
+
+func parseArgs(args string) (string, string) {
+	splitted := strings.Split(args, " ")
+	if len(splitted) == 0 {
+		return "", ""
+	} else if len(splitted) == 1 {
+		return splitted[0], ""
+	} else {
+		return splitted[0], splitted[1]
+	}
 }
 
 func processTelegramUpdates(bot *tgbotapi.BotAPI, listenBaseURL string, updates tgbotapi.UpdatesChannel) {
@@ -225,16 +246,18 @@ func processTelegramUpdates(bot *tgbotapi.BotAPI, listenBaseURL string, updates 
 		switch update.Message.Command() {
 		case "start":
 			log.Printf("Received /start command from %s\n", update.Message.From.UserName)
-			sendTextMessage(bot, update.Message, "Use this bot to get an audio from youtube videos")
+			sendTextMessage(bot, update.Message, info)
 		case "info":
 			log.Printf("Received /info command from %s\n", update.Message.From.UserName)
-			sendTextMessage(bot, update.Message, "Use this bot to get an audio from youtube videos")
+			sendTextMessage(bot, update.Message, info)
 		case "listen":
 			args := update.Message.CommandArguments()
 			log.Printf("Received /listen command with video %s from %s\n", args, update.Message.From.UserName)
-			telegramListenHandle(bot, update.Message, listenBaseURL, args)
+			id, audioFormat := parseArgs(args)
+			telegramListenHandle(bot, update.Message, listenBaseURL, id, audioFormat)
 		default:
-			telegramListenHandle(bot, update.Message, listenBaseURL, update.Message.Text)
+			id, audioFormat := parseArgs(update.Message.Text)
+			telegramListenHandle(bot, update.Message, listenBaseURL, id, audioFormat)
 		}
 	}
 }
