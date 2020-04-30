@@ -79,7 +79,7 @@ func findOutputFile(id string) string {
 }
 
 func doDownload(id, audioFormat string) (string, string, error) {
-	var fileToDeleteIfDownloadSecceed string
+	var fileToDeleteIfDownloadSucceed string
 	if resultFilename := findOutputFile(id); len(resultFilename) > 0 {
 		log.Printf("Found existing file %s\n", resultFilename)
 		if len(audioFormat) == 0 || (len(audioFormat) > 0 && strings.HasSuffix(resultFilename, audioFormat)) {
@@ -87,7 +87,7 @@ func doDownload(id, audioFormat string) (string, string, error) {
 		}
 
 		log.Printf("Existing file %s does not match wanted type %s\n", resultFilename, audioFormat)
-		fileToDeleteIfDownloadSecceed = baseDir + resultFilename
+		fileToDeleteIfDownloadSucceed = baseDir + resultFilename
 	}
 
 	filename := "'" + baseDir + "%(id)s.%(ext)s'"
@@ -103,8 +103,8 @@ func doDownload(id, audioFormat string) (string, string, error) {
 	log.Printf("The %s output is\n%s\n", command, out)
 
 	if resultFilename := findOutputFile(id); len(resultFilename) > 0 {
-		if len(fileToDeleteIfDownloadSecceed) > 0 {
-			err := os.RemoveAll(fileToDeleteIfDownloadSecceed)
+		if len(fileToDeleteIfDownloadSucceed) > 0 {
+			err := os.RemoveAll(fileToDeleteIfDownloadSucceed)
 			if err != nil {
 				log.Printf("Cannot delete %s", resultFilename)
 			}
@@ -145,7 +145,14 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filename, command, err := doDownload(id, "")
+	convertToMP3 := r.URL.Query().Get("mp3") == "on"
+	log.Printf("Received '%s' flag for convert to mp3\n", convertToMP3)
+	audioFormat := ""
+	if convertToMP3 {
+		audioFormat = "mp3"
+	}
+
+	filename, command, err := doDownload(id, audioFormat)
 	idsInProgress.Delete(id)
 
 	if err != nil {
