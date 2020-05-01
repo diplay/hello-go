@@ -1,4 +1,5 @@
 hello-go
+server
 *.swp
 localhost.key
 localhost.crt
