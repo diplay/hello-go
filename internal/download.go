@@ -37,12 +37,14 @@ func ExtractVideoID(v string) string {
 }
 
 // FindOutputFile TODO
-func FindOutputFile(id string) string {
+func FindOutputFile(id, preferredExtension string) string {
 	if dir, err := os.Open(baseDir); err == nil {
 		if files, err := dir.Readdirnames(-1); err == nil {
 			for _, filename := range files {
 				if strings.HasPrefix(filename, id) && !strings.HasSuffix(filename, ".info.json") {
-					return filename
+					if len(preferredExtension) == 0 || strings.HasSuffix(filename, preferredExtension) {
+						return filename
+					}
 				}
 			}
 		}
@@ -53,9 +55,9 @@ func FindOutputFile(id string) string {
 // DoDownload TODO
 func DoDownload(id, audioFormat string) (string, string, error) {
 	var fileToDeleteIfDownloadSucceed string
-	if resultFilename := FindOutputFile(id); len(resultFilename) > 0 {
+	if resultFilename := FindOutputFile(id, ""); len(resultFilename) > 0 {
 		log.Printf("Found existing file %s\n", resultFilename)
-		if len(audioFormat) == 0 || (len(audioFormat) > 0 && strings.HasSuffix(resultFilename, audioFormat)) {
+		if len(audioFormat) == 0 || strings.HasSuffix(resultFilename, audioFormat) {
 			return resultFilename, "", nil
 		}
 
@@ -75,7 +77,7 @@ func DoDownload(id, audioFormat string) (string, string, error) {
 	out, err := cmd.Output()
 	log.Printf("The %s output is\n%s\n", command, out)
 
-	if resultFilename := FindOutputFile(id); len(resultFilename) > 0 {
+	if resultFilename := FindOutputFile(id, audioFormat); len(resultFilename) > 0 {
 		if len(fileToDeleteIfDownloadSucceed) > 0 {
 			err := os.RemoveAll(fileToDeleteIfDownloadSucceed)
 			if err != nil {
