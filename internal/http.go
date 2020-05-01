@@ -30,7 +30,7 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Must specify 'v' parameter")
 		return
 	}
-	id = ExtractVideoID(id)
+	id = extractVideoID(id)
 
 	if len(id) == 0 {
 		w.WriteHeader(http.StatusBadRequest)
@@ -53,7 +53,7 @@ func downloadHandle(w http.ResponseWriter, r *http.Request) {
 		audioFormat = "mp3"
 	}
 
-	filename, command, err := DoDownload(id, audioFormat)
+	filename, command, err := doDownload(id, audioFormat)
 	idsInProgress.Delete(id)
 
 	if err != nil {

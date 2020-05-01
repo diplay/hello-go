@@ -18,7 +18,7 @@ func sendTextMessage(bot *tgbotapi.BotAPI, answerTo *tgbotapi.Message, text stri
 }
 
 func telegramListenHandle(bot *tgbotapi.BotAPI, commandMessage *tgbotapi.Message, listenBaseURL, id, audioFormat string) {
-	id = ExtractVideoID(id)
+	id = extractVideoID(id)
 	if len(id) == 0 {
 		sendTextMessage(bot, commandMessage, parameterVInvalidMessage)
 		return
@@ -33,7 +33,7 @@ func telegramListenHandle(bot *tgbotapi.BotAPI, commandMessage *tgbotapi.Message
 
 	sendTextMessage(bot, commandMessage, "Wait a moment, downloading the content for you")
 	bot.Send(tgbotapi.NewChatAction(commandMessage.Chat.ID, "typing"))
-	filename, command, err := DoDownload(id, audioFormat)
+	filename, command, err := doDownload(id, audioFormat)
 	idsInProgress.Delete(id)
 
 	if err != nil {
